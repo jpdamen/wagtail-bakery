@@ -21,7 +21,7 @@ def register_bakery_menu_item():
     from wagtail.admin.menu import MenuItem
 
     return MenuItem(
-        "Static site",
+        "Export site",
         reverse("wagtailbakery_admin"),
         icon_name="folder-open-inverse",
         order=1000,
