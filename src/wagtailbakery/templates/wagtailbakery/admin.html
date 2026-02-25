@@ -1,0 +1,40 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n %}
+
+{% block titletag %}{% trans "Static site build" %}{% endblock %}
+
+{% block content %}
+    {% include "wagtailadmin/shared/header.html" with title="Static site build" icon="site" %}
+
+    <div class="nice-padding">
+        <p>
+            Build the site as static HTML files and optionally publish to S3.
+        </p>
+
+        <dl class="listing">
+            <dt>Build directory</dt>
+            <dd><code>{{ build_dir }}</code></dd>
+
+            <dt>S3 bucket</dt>
+            <dd>
+                {% if bucket_configured %}
+                    <code>{{ bucket_name }}</code>
+                {% else %}
+                    <em>Not configured</em> — set <code>BAKERY_AWS_BUCKET_NAME</code> or <code>AWS_BUCKET_NAME</code> in the environment to enable publish.
+                {% endif %}
+            </dd>
+        </dl>
+
+        <form method="post" class="bakery-actions">
+            {% csrf_token %}
+            <button type="submit" name="action" value="build" class="button">
+                {% trans "Build" %}
+            </button>
+            {% if bucket_configured %}
+                <button type="submit" name="action" value="build_publish" class="button button-longrunning">
+                    {% trans "Build & publish to S3" %}
+                </button>
+            {% endif %}
+        </form>
+    </div>
+{% endblock %}

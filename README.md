@@ -104,6 +104,15 @@ BAKERY_VIEWS = (
 
 The API views use Wagtail's V2 API module. To configure the data that is rendered by these views, please refer to Wagtail's [V2 API configuration guide](http://docs.wagtail.org/en/latest/advanced_topics/api/v2/configuration.html).
 
+## Admin interface
+
+A "Static site" menu item is added to the Wagtail admin sidebar. From there you can:
+
+- **Build** — Generate static HTML files to `BUILD_DIR`
+- **Build & publish to S3** — Build and sync to an S3 bucket
+
+The S3 bucket is read from the `BAKERY_AWS_BUCKET_NAME` environment variable (or `AWS_BUCKET_NAME` as fallback). AWS credentials use the standard `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables.
+
 ## Usage
 
 Build the site out as flat files by running the `build` management command.
