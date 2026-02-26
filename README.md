@@ -113,6 +113,11 @@ A "Static site" menu item is added to the Wagtail admin sidebar. From there you 
 
 The S3 bucket is read from the `BAKERY_AWS_BUCKET_NAME` environment variable (or `AWS_BUCKET_NAME` as fallback). AWS credentials use the standard `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables.
 
+Optional settings:
+
+- `BAKERY_SKIP_STATIC` — If `True`, pass `--skip-static` to the build command (useful on read-only filesystems like Lambda).
+- `BAKERY_POST_PUBLISH_COMMAND` — Dict `{"command": "name", "title": "Label"}` or string (command only; title defaults to "Post-publish"). Run after successful publish (e.g. `{"command": "purge_frontend_cache", "title": "Invalidate cache"}`).
+
 ## Usage
 
 Build the site out as flat files by running the `build` management command.

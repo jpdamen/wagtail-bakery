@@ -25,16 +25,172 @@
             </dd>
         </dl>
 
-        <form method="post" class="bakery-actions">
+        <div id="bakery-progress" class="bakery-progress" style="display: none;">
+            <h4>{% trans "Progress" %}</h4>
+            <ol class="bakery-steps">
+                <li id="step-build" class="bakery-step" data-step="build">
+                    <span class="bakery-step-icon"></span>
+                    <span class="bakery-step-label">{% trans "Build" %}</span>
+                </li>
+                {% if bucket_configured %}
+                <li id="step-sync" class="bakery-step" data-step="sync">
+                    <span class="bakery-step-icon"></span>
+                    <span class="bakery-step-label">{% trans "Sync to S3" %}</span>
+                </li>
+                {% if post_publish_command %}
+                <li id="step-post_publish" class="bakery-step" data-step="post_publish">
+                    <span class="bakery-step-icon"></span>
+                    <span class="bakery-step-label">{{ post_publish_command_title }}</span>
+                </li>
+                {% endif %}
+                {% endif %}
+            </ol>
+            <p id="bakery-progress-message" class="help-block"></p>
+        </div>
+
+        <form method="post" class="bakery-actions" id="bakery-form">
             {% csrf_token %}
-            <button type="submit" name="action" value="build" class="button">
-                {% trans "Build" %}
+            <button type="submit" name="action" value="build" class="button" id="btn-test-build">
+                {% trans "Test build" %}
             </button>
             {% if bucket_configured %}
-                <button type="submit" name="action" value="build_publish" class="button button-longrunning">
+                <button type="submit" name="action" value="build_publish" class="button button-longrunning" id="btn-export">
                     {% trans "Build & publish to S3" %}
                 </button>
             {% endif %}
         </form>
     </div>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+        (function() {
+            const form = document.getElementById('bakery-form');
+            const progress = document.getElementById('bakery-progress');
+            const progressMessage = document.getElementById('bakery-progress-message');
+
+            function getStepsForAction(action) {
+                if (action === 'build') return ['build'];
+                const steps = ['build', 'sync'];
+                if (document.getElementById('step-post_publish')) steps.push('post_publish');
+                return steps;
+            }
+
+            function setStepState(stepId, state) {
+                const el = document.getElementById('step-' + stepId);
+                if (!el) return;
+                const icon = el.querySelector('.bakery-step-icon');
+                icon.className = 'bakery-step-icon bakery-step-' + state;
+                if (state === 'running') icon.textContent = '⋯';
+                else if (state === 'complete') icon.textContent = '✓';
+                else if (state === 'error') icon.textContent = '✗';
+                else icon.textContent = '';
+            }
+
+            function resetProgress(action) {
+                getStepsForAction(action).forEach(function(step) {
+                    setStepState(step, 'pending');
+                });
+                progressMessage.textContent = '';
+            }
+
+            form.addEventListener('submit', function(e) {
+                const btn = e.submitter;
+                const action = btn.value;
+                if (action !== 'build' && action !== 'build_publish') return;
+
+                e.preventDefault();
+
+                const steps = getStepsForAction(action);
+                steps.forEach(function(s) {
+                    const el = document.getElementById('step-' + s);
+                    if (el) el.style.display = '';
+                });
+                ['build', 'sync', 'post_publish'].forEach(function(s) {
+                    const el = document.getElementById('step-' + s);
+                    if (el && steps.indexOf(s) === -1) el.style.display = 'none';
+                });
+
+                progress.style.display = 'block';
+                resetProgress(action);
+                btn.disabled = true;
+                form.querySelectorAll('button[type="submit"]').forEach(function(b) { b.disabled = true; });
+
+                const formData = new FormData(form);
+                formData.set('action', action);
+
+                fetch(form.action || window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'Accept': 'text/event-stream' }
+                })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Request failed');
+                    return response.body.getReader();
+                })
+                .then(function(reader) {
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    function read() {
+                        return reader.read().then(function(result) {
+                            if (result.done) return;
+                            buffer += decoder.decode(result.value, { stream: true });
+                            const lines = buffer.split('\n\n');
+                            buffer = lines.pop() || '';
+                            lines.forEach(function(chunk) {
+                                if (chunk.startsWith('data: ')) {
+                                    try {
+                                        const data = JSON.parse(chunk.slice(6));
+                                        if (data.step === 'done') {
+                                            document.querySelectorAll('.bakery-step:not([style*="display: none"]) .bakery-step-icon').forEach(function(icon) {
+                                                if (!icon.classList.contains('bakery-step-complete') && !icon.classList.contains('bakery-step-error')) {
+                                                    icon.className = 'bakery-step-icon bakery-step-skipped';
+                                                    icon.textContent = '–';
+                                                }
+                                            });
+                                            if (data.success) {
+                                                progressMessage.textContent = 'Completed successfully.';
+                                                progressMessage.style.color = '';
+                                            } else {
+                                                progressMessage.textContent = 'Failed: ' + (data.message || 'Unknown error');
+                                                progressMessage.style.color = '#cd3238';
+                                            }
+                                            form.querySelectorAll('button[type="submit"]').forEach(function(b) { b.disabled = false; });
+                                            return;
+                                        }
+                                        if (data.step === 'error') {
+                                            progressMessage.textContent = data.message || 'Error';
+                                            progressMessage.style.color = '#cd3238';
+                                            form.querySelectorAll('button[type="submit"]').forEach(function(b) { b.disabled = false; });
+                                            return;
+                                        }
+                                        setStepState(data.step, data.status);
+                                    } catch (err) {}
+                                }
+                            });
+                            return read();
+                        });
+                    }
+                    return read();
+                })
+                .catch(function(err) {
+                    progressMessage.textContent = 'Failed: ' + err.message;
+                    progressMessage.style.color = '#cd3238';
+                    form.querySelectorAll('button[type="submit"]').forEach(function(b) { b.disabled = false; });
+                });
+            });
+        })();
+    </script>
+    <style>
+        .bakery-progress { margin: 1.5em 0; padding: 1em; background: #f6f6f6; border-radius: 4px; }
+        .bakery-steps { list-style: none; padding: 0; margin: 0 0 0.5em 0; }
+        .bakery-step { display: flex; align-items: center; gap: 0.5em; padding: 0.25em 0; }
+        .bakery-step-icon { width: 1.5em; text-align: center; font-weight: bold; }
+        .bakery-step-icon.bakery-step-pending { color: #ccc; }
+        .bakery-step-icon.bakery-step-running { color: #007d7e; animation: bakery-pulse 1s infinite; }
+        .bakery-step-icon.bakery-step-complete { color: #0e8a3a; }
+        .bakery-step-icon.bakery-step-error { color: #cd3238; }
+        .bakery-step-icon.bakery-step-skipped { color: #999; }
+        @keyframes bakery-pulse { 50% { opacity: 0.5; } }
+    </style>
 {% endblock %}
